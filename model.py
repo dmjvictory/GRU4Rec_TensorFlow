@@ -176,31 +176,32 @@ class GRU4Rec:
         itemids = data[self.item_key].unique()
         self.n_items = len(itemids)
         self.itemidmap = pd.Series(data=np.arange(self.n_items), index=itemids)
+        # construct item df
         data = pd.merge(data, pd.DataFrame({self.item_key:itemids, 'ItemIdx':self.itemidmap[itemids].values}), on=self.item_key, how='inner')
         offset_sessions = self.init(data)
         print('fitting model...')
         for epoch in xrange(self.n_epochs):
             epoch_cost = []
             state = [np.zeros([self.batch_size, self.rnn_size], dtype=np.float32) for _ in xrange(self.layers)]
-            session_idx_arr = np.arange(len(offset_sessions)-1)
+            session_idx_arr = np.arange(len(offset_sessions)-1) 
             iters = np.arange(self.batch_size)
-            maxiter = iters.max()
+            maxiter = iters.max() # batch_size
             start = offset_sessions[session_idx_arr[iters]]
             end = offset_sessions[session_idx_arr[iters]+1]
             finished = False
             while not finished:
                 minlen = (end-start).min()
-                out_idx = data.ItemIdx.values[start]
-                for i in range(minlen-1):
-                    in_idx = out_idx
-                    out_idx = data.ItemIdx.values[start+i+1]
+                out_idx = data.ItemIdx.values[start] # id to index
+                for i in range(minlen-1): # min length in session parallel
+                    in_idx = out_idx 
+                    out_idx = data.ItemIdx.values[start+i+1] # shift + 1
                     # prepare inputs, targeted outputs and hidden states
                     fetches = [self.cost, self.final_state, self.global_step, self.lr, self.train_op]
                     feed_dict = {self.X: in_idx, self.Y: out_idx}
                     for j in xrange(self.layers): 
                         feed_dict[self.state[j]] = state[j]
                     
-                    cost, state, step, lr, _ = self.sess.run(fetches, feed_dict)
+                    cost, state, step, lr, _ = self.sess.run(fetches, feed_dict) # step one
                     epoch_cost.append(cost)
                     if np.isnan(cost):
                         print(str(epoch) + ':Nan error!')
@@ -209,7 +210,7 @@ class GRU4Rec:
                     if step == 1 or step % self.decay_steps == 0:
                         avgc = np.mean(epoch_cost)
                         print('Epoch {}\tStep {}\tlr: {:.6f}\tloss: {:.6f}'.format(epoch, step, lr, avgc))
-                start = start+minlen-1
+                start = start+minlen-1 # complement short session
                 mask = np.arange(len(iters))[(end-start)<=1]
                 for idx in mask:
                     maxiter += 1
@@ -221,7 +222,7 @@ class GRU4Rec:
                     end[idx] = offset_sessions[session_idx_arr[maxiter]+1]
                 if len(mask) and self.reset_after_session:
                     for i in xrange(self.layers):
-                        state[i][mask] = 0
+                        state[i][mask] = 0 # reset cell state
             
             avgc = np.mean(epoch_cost)
             if np.isnan(avgc):
